@@ -100,16 +100,19 @@ export function Dashboard() {
   const refreshSequence = useRef(0);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as string[];
-        if (Array.isArray(parsed) && parsed.length) setWatchlist(parsed.slice(0, 30));
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
+    const task = window.setTimeout(() => {
+      const saved = window.localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as string[];
+          if (Array.isArray(parsed) && parsed.length) setWatchlist(parsed.slice(0, 30));
+        } catch {
+          window.localStorage.removeItem(STORAGE_KEY);
+        }
       }
-    }
-    setHydrated(true);
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(task);
   }, []);
 
   useEffect(() => {
@@ -166,7 +169,11 @@ export function Dashboard() {
     setIsRefreshing(false);
   }, [watchlist]);
 
-  useEffect(() => { if (hydrated) void refresh(); }, [hydrated, refresh]);
+  useEffect(() => {
+    if (!hydrated) return;
+    const task = window.setTimeout(() => void refresh(), 0);
+    return () => window.clearTimeout(task);
+  }, [hydrated, refresh]);
 
   useEffect(() => {
     let timer: number;
