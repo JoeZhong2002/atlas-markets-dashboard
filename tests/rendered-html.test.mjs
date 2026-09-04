@@ -23,6 +23,7 @@ test("server-renders the Atlas Markets dashboard shell", async () => {
   assert.match(html, /<title>Atlas Markets · 科技投资晨报<\/title>/i);
   assert.match(html, /美股科技投资晨报/);
   assert.match(html, /自选股行情/);
+  assert.match(html, /财报与华尔街共识/);
   assert.match(html, /价格波动证据/);
   assert.match(html, /科技股核心信号/);
   assert.match(html, /市场状态/);
@@ -35,12 +36,13 @@ test("server-renders the Atlas Markets dashboard shell", async () => {
 });
 
 test("keeps watchlist persistence and live-data routes in the source", async () => {
-  const [dashboard, market, search, evidence, overview, readme] = await Promise.all([
+  const [dashboard, market, search, evidence, overview, research, readme] = await Promise.all([
     readFile(new URL("../app/Dashboard.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/market/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/search/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/evidence/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/overview/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/research/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../README.md", import.meta.url), "utf8"),
   ]);
 
@@ -50,6 +52,7 @@ test("keeps watchlist persistence and live-data routes in the source", async () 
   assert.match(dashboard, /\/api\/market/);
   assert.match(dashboard, /\/api\/evidence/);
   assert.match(dashboard, /\/api\/overview/);
+  assert.match(dashboard, /\/api\/research/);
   assert.match(market, /api\.nasdaq\.com/);
   assert.match(search, /autocomplete\/slookup/);
   assert.match(evidence, /MAX_AGE_MS = 72/);
@@ -58,9 +61,17 @@ test("keeps watchlist persistence and live-data routes in the source", async () 
   assert.match(overview, /DFII10/);
   assert.match(overview, /BAMLH0A0HYM2/);
   assert.match(overview, /VXVCLS/);
+  assert.match(research, /company_tickers\.json/);
+  assert.match(research, /earnings-surprise/);
+  assert.match(research, /\/ratings/);
+  assert.match(research, /\/targetprice/);
+  assert.match(research, /JPMorgan/);
+  assert.match(research, /best effort only/);
   assert.match(dashboard, /atlas-dashboard-cache-v2/);
   assert.match(dashboard, /CME FedWatch/);
   assert.match(readme, /## 本地运行/);
   assert.match(readme, /## Fork 后创建自己的版本/);
   assert.match(readme, /## 开源许可证/);
+  assert.match(readme, /财报洞察/);
+  assert.match(readme, /Nasdaq Analyst Research/);
 });
