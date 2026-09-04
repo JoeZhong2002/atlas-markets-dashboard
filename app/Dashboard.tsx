@@ -54,6 +54,41 @@ type CachedDashboard = {
   events: MarketEvent[];
   evidence: Evidence[];
   overview: Overview;
+  research?: ResearchResponse;
+};
+
+type ResearchFiling = { accession: string; form: string; filedAt: string; acceptedAt: string | null; reportDate: string | null; description: string; items: string | null; source: string; sourceUrl: string };
+type ResearchEarnings = { fiscalQuarter: string | null; reportedAt: string | null; eps: number | null; consensusEps: number | null; surprisePercent: number | null; sourceUrl: string };
+type ResearchAnalyst = {
+  consensus: string | null;
+  summary: string | null;
+  distribution: { buy: number | null; hold: number | null; sell: number | null };
+  target: { average: number | null; high: number | null; low: number | null };
+  topFirms: string[];
+  actions: Array<{ firm?: string; analyst?: string; date?: string; action?: string; ratingPrior?: string; ratingCurrent?: string; priceTargetPrior?: number | string; priceTargetCurrent?: number | string }>;
+  sourceUrl: string;
+};
+type RatingEvidence = { id: string; title: string; description: string | null; publisher: string; publishedAt: string; institutions: string[]; sourceUrl: string };
+type ResearchInsight = { tone: "positive" | "negative" | "neutral"; title: string; detail: string; sourceIds: string[] };
+type ResearchSource = { id: string; label: string; url: string; publishedAt: string | null; kind: string };
+type ResearchCompany = {
+  symbol: string;
+  hasRecentEvent: boolean;
+  filings: ResearchFiling[];
+  earnings: ResearchEarnings | null;
+  analyst: ResearchAnalyst | null;
+  ratingEvidence: RatingEvidence[];
+  insights: ResearchInsight[];
+  sources: ResearchSource[];
+  health: { sec: boolean; earnings: boolean; analyst: boolean; news: boolean };
+};
+type ResearchResponse = {
+  items: ResearchCompany[];
+  coverage: Array<{ symbol: string; hasRecentEvent: boolean; health: ResearchCompany["health"] }>;
+  windowDays: number;
+  updatedAt: string | null;
+  health: { requested: number; completed: number; withRecentEvents: number; degraded: number };
+  live: boolean;
 };
 
 const DEFAULT_WATCHLIST = ["NVDA", "TSM", "MSFT", "META", "AMZN", "AAPL"];
@@ -63,6 +98,7 @@ const MAX_AGE_HOURS = 72;
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000;
 const EMPTY_REGIME: MarketRegime = { label: "等待信号", tone: "watch", summary: "正在连接利率、信用与波动率数据。", drivers: [] };
 const EMPTY_OVERVIEW: Overview = { indices: [], macro: [], signals: [], health: [], regime: EMPTY_REGIME, crypto: [] };
+const EMPTY_RESEARCH: ResearchResponse = { items: [], coverage: [], windowDays: 7, updatedAt: null, health: { requested: 0, completed: 0, withRecentEvents: 0, degraded: 0 }, live: false };
 
 const fallbackSearch: SearchResult[] = [
   { symbol: "AMD", name: "Advanced Micro Devices", exchange: "NASDAQ", type: "Equity" },
@@ -141,6 +177,28 @@ async function getJson<T>(url: string) {
   }
 }
 
+async function fetchCoinGeckoDirect(): Promise<CryptoPoint[]> {
+  const payload = await getJson<Record<string, { usd?: number; usd_24h_change?: number; last_updated_at?: number }>>(
+    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true",
+  );
+  return [
+    { key: "BTC", name: "Bitcoin", coinId: "bitcoin" },
+    { key: "ETH", name: "Ethereum", coinId: "ethereum" },
+  ].flatMap(({ key, name, coinId }): CryptoPoint[] => {
+    const point = payload[coinId];
+    if (!point || typeof point.usd !== "number") return [];
+    return [{
+      key,
+      name,
+      value: point.usd,
+      changePercent: typeof point.usd_24h_change === "number" ? point.usd_24h_change : null,
+      asOf: point.last_updated_at ? new Date(point.last_updated_at * 1000).toISOString() : null,
+      source: "CoinGecko（浏览器直连）",
+      sourceUrl: `https://www.coingecko.com/en/coins/${coinId}`,
+    }];
+  });
+}
+
 export function Dashboard() {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
   const [hydrated, setHydrated] = useState(false);
@@ -148,6 +206,7 @@ export function Dashboard() {
   const [events, setEvents] = useState<MarketEvent[]>([]);
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [overview, setOverview] = useState<Overview>(EMPTY_OVERVIEW);
+  const [research, setResearch] = useState<ResearchResponse>(EMPTY_RESEARCH);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>(fallbackSearch);
@@ -180,6 +239,7 @@ export function Dashboard() {
             setEvents(parsed.events ?? []);
             setEvidence(parsed.evidence ?? []);
             setOverview(parsed.overview);
+            setResearch(parsed.research ?? EMPTY_RESEARCH);
             setLastUpdated(new Date(parsed.savedAt));
             setDataStatus("partial");
             setCacheNotice(`正在展示 ${cacheAgeLabel(parsed.savedAt)}前的最近成功快照`);
@@ -205,10 +265,11 @@ export function Dashboard() {
     setIsRefreshing(true);
     setRefreshMessage("正在刷新行情、宏观和资讯…");
 
-    const [marketResult, evidenceResult, overviewResult] = await Promise.allSettled([
+    const [marketResult, evidenceResult, overviewResult, researchResult] = await Promise.allSettled([
       getJson<{ quotes: Quote[]; events: MarketEvent[]; failedSymbols: string[]; live: boolean }>(`/api/market?symbols=${encodeURIComponent(watchlist.join(","))}&_=${stamp}`),
       getJson<{ items: Evidence[]; live: boolean }>(`/api/evidence?symbols=${encodeURIComponent(watchlist.join(","))}&_=${stamp}`),
-      getJson<Overview & { live: boolean }>(`/api/overview?_=${stamp}`),
+      getJson<Overview & { live: boolean }>("/api/overview"),
+      getJson<ResearchResponse>(`/api/research?symbols=${encodeURIComponent(watchlist.join(","))}`),
     ]);
 
     if (sequence !== refreshSequence.current) return;
@@ -250,6 +311,19 @@ export function Dashboard() {
         regime: overviewResult.value.regime,
         crypto: overviewResult.value.crypto,
       };
+      if (!nextOverview.crypto.length) {
+        try {
+          const directCrypto = await fetchCoinGeckoDirect();
+          if (directCrypto.length) {
+            nextOverview.crypto = directCrypto;
+            nextOverview.health = nextOverview.health.map((item) => item.key === "crypto"
+              ? { ...item, available: directCrypto.length, status: directCrypto.length === item.total ? "live" : "partial", detail: "服务器出口受限，已由当前浏览器直连恢复" }
+              : item);
+          }
+        } catch {
+          // Keep the server health detail and any last successful snapshot below.
+        }
+      }
       setOverview(nextOverview);
       cached.overview = nextOverview;
       completed += 1;
@@ -259,6 +333,15 @@ export function Dashboard() {
       warnings.push(cached.overview.signals.length ? "宏观数据沿用最近快照" : "宏观/加密数据失败");
     }
 
+    if (researchResult.status === "fulfilled" && researchResult.value.live) {
+      setResearch(researchResult.value);
+      cached.research = researchResult.value;
+      completed += 1;
+      if (researchResult.value.health.degraded) warnings.push(`${researchResult.value.health.degraded} 只股票的财报数据不完整`);
+    } else {
+      warnings.push(cached.research ? "财报洞察沿用最近快照" : "财报洞察失败");
+    }
+
     const now = new Date();
     if (completed) {
       cached.savedAt = now.toISOString();
@@ -266,8 +349,8 @@ export function Dashboard() {
       setLastUpdated(now);
       setCacheNotice(null);
     }
-    const hasCachedData = cached.quotes.length + cached.evidence.length + cached.overview.signals.length > 0;
-    setDataStatus(completed === 3 && !warnings.length ? "live" : completed || hasCachedData ? "partial" : "error");
+    const hasCachedData = cached.quotes.length + cached.evidence.length + cached.overview.signals.length + (cached.research?.items.length ?? 0) > 0;
+    setDataStatus(completed === 4 && !warnings.length ? "live" : completed || hasCachedData ? "partial" : "error");
     setRefreshMessage(completed
       ? (warnings.length ? `部分更新：${warnings.join("；")}` : "全部数据已刷新")
       : hasCachedData ? "实时连接失败，已保留最近成功快照" : "刷新失败，请稍后重试");
@@ -353,6 +436,7 @@ export function Dashboard() {
     : "市场指数数据暂不可用";
   const availableSources = overview.health.filter((item) => item.available > 0).length + (Object.keys(quotes).length ? 1 : 0);
   const totalSources = overview.health.length + 1;
+  const researchSources = useMemo(() => Object.fromEntries(research.items.flatMap((company) => company.sources.map((source) => [`${company.symbol}-${source.id}`, source]))), [research.items]);
 
   function addTicker(symbol: string) {
     const normalized = symbol.trim().toUpperCase();
@@ -368,7 +452,7 @@ export function Dashboard() {
     <div className="app-shell">
       <header className="topbar">
         <a className="brand" href="#top" aria-label="Atlas Markets 首页"><span className="brand-mark">A</span><span><b>Atlas Markets</b><small>科技投资晨报</small></span></a>
-        <nav className="main-nav" aria-label="主要导航"><a className="active" href="#top">晨间总览</a><a href="#signals">核心信号</a><a href="#watchlist">自选股</a><a href="#evidence">证据动态</a><a href="#calendar">事件日历</a></nav>
+        <nav className="main-nav" aria-label="主要导航"><a className="active" href="#top">晨间总览</a><a href="#signals">核心信号</a><a href="#watchlist">自选股</a><a href="#research">财报洞察</a><a href="#evidence">证据动态</a><a href="#calendar">事件日历</a></nav>
         <div className="update-state"><span className={`pulse ${dataStatus}`} />{{ loading: "连接中", live: "数据正常", partial: "部分可用", error: "刷新失败" }[dataStatus]}</div>
       </header>
 
@@ -409,6 +493,65 @@ export function Dashboard() {
           </tbody></table></div>
         </section>
 
+        <section id="research" className="panel research-panel">
+          <div className="panel-heading research-heading">
+            <div><span className="eyebrow">EARNINGS INTELLIGENCE · 7 DAYS</span><h2>财报与华尔街共识</h2><p>自动匹配当前自选股；财报以 SEC 为原始证据，评级与目标价来自 Nasdaq 公开页面。</p></div>
+            <span className="freshness-badge">可溯源 · 尽力覆盖</span>
+          </div>
+          <div className="research-summary">
+            <div><span>扫描自选股</span><strong>{research.health.completed}/{research.health.requested || watchlist.length}</strong><small>过去 7 天</small></div>
+            <div><span>新增财报/机构动态</span><strong>{research.health.withRecentEvents}</strong><small>只股票</small></div>
+            <div><span>SEC 文件</span><strong>{research.items.reduce((total, item) => total + item.filings.length, 0)}</strong><small>原始披露</small></div>
+            <div><span>顶级机构证据</span><strong>{research.items.reduce((total, item) => total + item.ratingEvidence.length, 0)}</strong><small>Nasdaq 文章</small></div>
+          </div>
+          {research.items.length ? <div className="research-list">
+            {research.items.map((company) => {
+              const quote = quotes[company.symbol];
+              const target = company.analyst?.target.average ?? null;
+              const targetUpside = quote?.price && target ? (target / quote.price - 1) * 100 : null;
+              return <article className="research-company" key={company.symbol}>
+                <header className="research-company-header">
+                  <div className="research-symbol"><span>{company.symbol.slice(0, 2)}</span><div><b>{company.symbol}</b><small>{company.earnings?.fiscalQuarter ?? company.filings[0]?.form ?? "近期机构动态"}</small></div></div>
+                  <div className="research-date"><b>{company.earnings?.reportedAt ?? company.filings[0]?.filedAt ?? "近 7 天"}</b><small>{company.earnings ? "财报已发布" : company.filings.length ? "SEC 新文件" : "机构观点更新"}</small></div>
+                </header>
+
+                <div className="research-body">
+                  <div className="earnings-facts">
+                    <div className="subsection-title"><span>财报事实</span><small>SEC / Nasdaq</small></div>
+                    {company.earnings ? <div className="fact-grid">
+                      <div><span>报告 EPS</span><strong>{company.earnings.eps?.toFixed(2) ?? "—"}</strong></div>
+                      <div><span>市场预期</span><strong>{company.earnings.consensusEps?.toFixed(2) ?? "—"}</strong></div>
+                      <div><span>Surprise</span><strong className={(company.earnings.surprisePercent ?? 0) >= 0 ? "positive" : "negative"}>{company.earnings.surprisePercent === null ? "—" : `${company.earnings.surprisePercent >= 0 ? "+" : ""}${company.earnings.surprisePercent.toFixed(1)}%`}</strong></div>
+                    </div> : <div className="research-unavailable">Nasdaq 暂无过去 7 天的 EPS surprise 记录</div>}
+                    <div className="filing-row">{company.filings.length ? company.filings.map((filing, index) => <a href={filing.sourceUrl} target="_blank" rel="noreferrer" key={filing.accession}><span>S{index + 1}</span><b>{filing.form}</b><small>{filing.filedAt} · {filing.source} ↗</small></a>) : <span className="muted-line">未匹配到同期 SEC 财报文件</span>}</div>
+                  </div>
+
+                  <div className="analyst-consensus">
+                    <div className="subsection-title"><span>Nasdaq 分析师共识</span><small>非逐家投行评级</small></div>
+                    {company.analyst ? <>
+                      <div className="consensus-head"><strong>{company.analyst.consensus ?? "—"}</strong><span>平均目标价 <b>{target === null ? "—" : `$${target.toFixed(2)}`}</b></span><em className={(targetUpside ?? 0) >= 0 ? "positive" : "negative"}>{targetUpside === null ? "现价空间 —" : `现价空间 ${targetUpside >= 0 ? "+" : ""}${targetUpside.toFixed(1)}%`}</em></div>
+                      <div className="rating-split"><span>Buy <b>{company.analyst.distribution.buy ?? "—"}</b></span><span>Hold <b>{company.analyst.distribution.hold ?? "—"}</b></span><span>Sell <b>{company.analyst.distribution.sell ?? "—"}</b></span></div>
+                      <div className="target-range"><span>Low {company.analyst.target.low === null ? "—" : `$${company.analyst.target.low.toFixed(2)}`}</span><i /><span>High {company.analyst.target.high === null ? "—" : `$${company.analyst.target.high.toFixed(2)}`}</span></div>
+                      <div className="firm-tags">{company.analyst.topFirms.length ? company.analyst.topFirms.map((firm) => <span key={firm}>{firm}</span>) : <small>指定顶级机构未出现在当前覆盖名单</small>}</div>
+                    </> : <div className="research-unavailable">Nasdaq 分析师页面暂不可用</div>}
+                  </div>
+
+                  <div className="insight-column">
+                    <div className="subsection-title"><span>核心 Insight</span><small>事实约束规则</small></div>
+                    <div className="insight-list">{company.insights.map((insight, index) => <div className={`insight ${insight.tone}`} key={`${insight.title}-${index}`}><i /><div><b>{insight.title}</b><p>{insight.detail}</p><div className="source-pills">{insight.sourceIds.map((sourceId) => { const source = researchSources[`${company.symbol}-${sourceId}`]; return source ? <a href={source.url} target="_blank" rel="noreferrer" key={sourceId}>{sourceId} ↗</a> : null; })}</div></div></div>)}</div>
+                  </div>
+                </div>
+
+                <div className="institution-evidence">
+                  <div className="subsection-title"><span>过去 7 天顶级机构动态</span><small>仅展示 Nasdaq 可验证内容</small></div>
+                  {company.ratingEvidence.length ? <div className="institution-list">{company.ratingEvidence.map((item) => <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={item.id}><div><span>{item.institutions.join(" · ")}</span><time>{new Date(item.publishedAt).toLocaleDateString("zh-CN")}</time></div><b>{item.title}</b><small>{item.publisher} ↗</small></a>)}</div> : <p className="institution-empty">暂无可验证的逐家机构评级或目标价变动；覆盖机构名单不等同于本周发布评级。</p>}
+                </div>
+              </article>;
+            })}
+          </div> : <div className="empty-research"><span>7D</span><div><b>{research.live ? "过去 7 天暂无新增财报或可验证机构动态" : "正在扫描自选股财报与机构动态"}</b><p>{research.live ? "Nasdaq 的当前共识不会被误标为本周评级事件；下一次刷新将自动重新检查。" : "首次加载可能需要数秒，失败时会保留最近成功快照。"}</p></div></div>}
+          <div className="research-method"><span>口径说明</span><p>SEC 文件属于公司原始披露；Nasdaq 分析师页面提供市场共识和覆盖机构。具体投行变动只有在 Nasdaq 文章或接口明确披露时才展示。</p><a href="https://www.nasdaq.com/market-activity/stocks/nvda/analyst-research" target="_blank" rel="noreferrer">查看 Nasdaq 方法 ↗</a></div>
+        </section>
+
         <section id="evidence" className="content-grid">
           <article className="panel evidence-panel">
             <div className="panel-heading evidence-heading"><div><span className="eyebrow">PRICE MOVEMENT EVIDENCE</span><h2>价格波动证据</h2><p>仅列出过去 72 小时内的报道标题，不生成因果结论。</p></div><span className="freshness-badge">72h 鲜度门槛</span></div>
@@ -417,13 +560,13 @@ export function Dashboard() {
 
           <div className="side-stack">
             <article id="macro" className="panel compact-panel"><div className="section-heading"><h2>可交易市场代理</h2><span>Nasdaq · 常规时段涨跌</span></div><div className="mini-grid">{overview.macro.length ? overview.macro.map((item) => <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={item.key}><span>{item.name}</span><b>{price(item.value)}</b><em className={(item.changePercent ?? 0) >= 0 ? "positive" : "negative"}>{pct(item.changePercent)} · {item.key}</em></a>) : <div className="metric-unavailable">市场代理暂不可用</div>}</div></article>
-            <article className="panel compact-panel health-panel"><div className="section-heading"><h2>数据源健康</h2><span>缺失时保留 24h 快照</span></div><div className="health-list"><div><span className={Object.keys(quotes).length ? "live" : "down"} /><b>自选股行情</b><em>{Object.keys(quotes).length}/{watchlist.length}</em></div>{overview.health.map((item) => <div key={item.key}><span className={item.status} /><b>{item.name}</b><em>{item.available}/{item.total}</em></div>)}</div></article>
+            <article className="panel compact-panel health-panel"><div className="section-heading"><h2>数据源健康</h2><span>缺失时保留 24h 快照</span></div><div className="health-list"><div><span className={Object.keys(quotes).length ? "live" : "down"} /><b>自选股行情</b><em>{Object.keys(quotes).length}/{watchlist.length}</em></div><div><span className={research.health.completed ? research.health.degraded ? "partial" : "live" : "down"} /><b>财报与机构共识</b><em>{research.health.completed}/{research.health.requested || watchlist.length}</em></div>{overview.health.map((item) => <div key={item.key}><span className={item.status} /><b>{item.name}</b><em>{item.available}/{item.total}</em></div>)}</div></article>
             <article id="calendar" className="panel compact-panel"><div className="section-heading"><h2>宏观事件入口</h2><span>发布前查看预期与时间</span></div><div className="calendar-list">{OFFICIAL_CALENDARS.map((item) => <a href={item.href} target="_blank" rel="noreferrer" key={item.key}><span>{item.key}</span><b>{item.name}</b><small>{item.owner} ↗</small></a>)}</div><p className="calendar-note">数据公布时应比较实际值、市场预期和前值，避免只根据同比水平判断。</p></article>
             <article id="crypto" className="panel compact-panel"><div className="section-heading"><h2>加密市场</h2><span>CoinGecko · 24小时</span></div><div className="crypto-row">{overview.crypto.length ? overview.crypto.map((item) => <a href={item.sourceUrl} target="_blank" rel="noreferrer" key={item.key}><span>{item.key}</span><b>{price(item.value)}</b><em className={(item.changePercent ?? 0) >= 0 ? "positive" : "negative"}>{pct(item.changePercent)}</em></a>) : <div className="metric-unavailable">加密数据暂不可用</div>}</div></article>
           </div>
         </section>
 
-        <footer><span>Atlas Markets · 仅供投资研究，不构成投资建议</span><span>来源：FRED · Nasdaq · Cboe · CoinGecko · 原始资讯发布时间 ≤ 72h</span></footer>
+        <footer><span>Atlas Markets · 仅供投资研究，不构成投资建议</span><span>来源：SEC · FRED · Nasdaq · Cboe · CoinGecko · 财报窗口 7 天</span></footer>
       </main>
 
       {isAddOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setIsAddOpen(false); }}><section className="search-modal" role="dialog" aria-modal="true" aria-labelledby="add-title"><header><div><span className="eyebrow">EDIT WATCHLIST</span><h2 id="add-title">添加自选股</h2></div><button className="icon-button close" aria-label="关闭" onClick={() => setIsAddOpen(false)}>×</button></header><label className="search-field"><span>⌕</span><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入 ticker 或公司名称，例如 AMD" /></label><div className="search-status">{isSearching ? "正在搜索…" : `${results.length} 个匹配结果`}</div><div className="search-results">{results.map((item) => { const added = watchlist.includes(item.symbol); return <button key={item.symbol} disabled={added} onClick={() => addTicker(item.symbol)}><span className="result-logo">{item.symbol.slice(0, 2)}</span><span><b>{item.symbol}</b><small>{item.name} · {item.exchange}</small></span><em>{added ? "已添加" : "+ 添加"}</em></button>; })}{!isSearching && !results.length && <div className="no-results">没有找到匹配的美股 ticker</div>}</div><p className="modal-note">最多可添加 30 只股票；添加后会自动刷新。</p></section></div>}
