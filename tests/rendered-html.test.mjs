@@ -24,6 +24,10 @@ test("server-renders the Atlas Markets dashboard shell", async () => {
   assert.match(html, /美股科技投资晨报/);
   assert.match(html, /自选股行情/);
   assert.match(html, /价格波动证据/);
+  assert.match(html, /科技股核心信号/);
+  assert.match(html, /市场状态/);
+  assert.match(html, /宏观事件入口/);
+  assert.match(html, /数据源健康/);
   assert.match(html, /刷新数据/);
   assert.match(html, /添加自选股/);
   assert.match(html, /role="status"/);
@@ -50,6 +54,12 @@ test("keeps watchlist persistence and live-data routes in the source", async () 
   assert.match(search, /autocomplete\/slookup/);
   assert.match(evidence, /MAX_AGE_MS = 72/);
   assert.match(overview, /api\.coingecko\.com/);
+  assert.match(overview, /fred\.stlouisfed\.org/);
+  assert.match(overview, /DFII10/);
+  assert.match(overview, /BAMLH0A0HYM2/);
+  assert.match(overview, /VXVCLS/);
+  assert.match(dashboard, /atlas-dashboard-cache-v2/);
+  assert.match(dashboard, /CME FedWatch/);
   assert.match(readme, /## 本地运行/);
   assert.match(readme, /## Fork 后创建自己的版本/);
   assert.match(readme, /## 开源许可证/);
