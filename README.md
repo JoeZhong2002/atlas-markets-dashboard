@@ -73,7 +73,7 @@ location.reload();
 | 指数与市场代理 | Nasdaq | NDX、SOX、SPY、TLT、UUP、HYG、QQQ、QQEW |
 | 利率、信用、波动与商品 | [FRED](https://fred.stlouisfed.org/) | DGS2、DGS10、DFII10、BAMLH0A0HYM2、VIXCLS、VXVCLS、DTWEXBGS、DCOILWTICO、DHHNGSP |
 | 波动率期限结构说明 | [Cboe](https://www.cboe.com/tradable-products/vix/term-structure/) | VIX 与 3 个月隐含波动率的相对关系 |
-| 加密资产 | [CoinGecko](https://www.coingecko.com/) | BTC、ETH 美元价格及 24 小时涨跌 |
+| 加密资产 | [CoinGecko](https://www.coingecko.com/) | BTC、ETH 美元价格及 24 小时涨跌；服务端受共享出口限流时自动改为浏览器直连 |
 | 财报原始文件 | [SEC EDGAR](https://www.sec.gov/edgar/search/)；Nasdaq SEC Filings 回退 | 过去 7 天的 10-Q、10-K、20-F、6-K，以及可确认属于业绩披露的 8-K |
 | 财报 surprise | [Nasdaq Earnings](https://www.nasdaq.com/market-activity/earnings) | 报告 EPS、市场一致预期和 surprise 百分比 |
 | 分析师共识与目标价 | Nasdaq Analyst Research | Buy/Hold/Sell 共识、覆盖机构、平均/高低目标价；目标价在 Nasdaq 页面中标注由 TipRanks 提供 |
@@ -261,6 +261,7 @@ npm run lint
 - 自选股仅存储在浏览器本地，暂不支持账户同步。
 - 每日 09:00 刷新由浏览器定时器触发；浏览器关闭时不会运行后台任务。
 - 免费公开数据源可能延迟、限流或修改响应格式。
+- CoinGecko 优先由服务端获取并短时缓存；若部署平台的共享出口受限，页面会自动从当前浏览器直连 CoinGecko。两种路径均不使用伪造价格。
 - “证据动态”只展示近期标题和来源，不证明新闻与价格波动存在因果关系。
 - FRED 日频序列通常滞后于盘中市场，不应用作实时交易报价；页面会显示对应观测日期。
 - 市场状态属于透明规则化提示，不是预测模型，也不应被解释为买卖建议。
