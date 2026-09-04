@@ -18,7 +18,12 @@
 - 自选股编辑：通过 ticker 或公司名称搜索并添加股票，也可从列表中删除股票。
 - 本地个性化：每位访问者的自选股保存在自己的浏览器中，不会修改其他人的列表。
 - 市场总览：NASDAQ 100、SOX 半导体以及 S&P 500 ETF 等市场指标。
-- 宏观交易代理：使用 SPY、TLT、UUP、HYG 观察股票、长期美债、美元和高收益债市场。
+- 科技股核心信号：直接展示 2 年/10 年美债、10 年实际利率、高收益债 OAS、VIX 期限结构、广义美元、WTI 原油和美国天然气。
+- 市场状态：根据实际利率、信用利差、波动率期限结构与油价的组合变化，生成规则化的环境提示，并列出触发依据。
+- 相对强弱：使用 QQQ/SPY、SOX/NDX 和 QQEW/QQQ 观察科技、半导体和等权市场宽度。
+- 宏观交易代理：使用 SPY、TLT、UUP、HYG、QQQ、QQEW 观察可交易市场价格。
+- 数据韧性：展示每组数据源健康度；实时请求失败时可保留最多 24 小时的最近成功浏览器快照。
+- 官方事件入口：集中链接 BLS、BEA、Federal Reserve 和 CME FedWatch 日历。
 - 加密市场：展示 BTC、ETH 的美元价格和 24 小时涨跌。
 - 价格波动证据：只展示报道标题、发布时间和来源链接，不主动生成因果归因。
 - 72 小时过滤：剔除超过 72 小时、重复标题、带明显转载旧闻标记或明显投资推荐倾向的内容。
@@ -61,7 +66,9 @@ location.reload();
 | --- | --- | --- |
 | 股票行情 | [Nasdaq](https://www.nasdaq.com/market-activity/stocks) | 最新可用成交价、常规时段涨跌、盘前/盘后涨跌、成交量 |
 | ticker 搜索 | Nasdaq | 美股和 ETF 搜索结果 |
-| 指数与宏观代理 | Nasdaq | NDX、SOX、SPY、TLT、UUP、HYG |
+| 指数与市场代理 | Nasdaq | NDX、SOX、SPY、TLT、UUP、HYG、QQQ、QQEW |
+| 利率、信用、波动与商品 | [FRED](https://fred.stlouisfed.org/) | DGS2、DGS10、DFII10、BAMLH0A0HYM2、VIXCLS、VXVCLS、DTWEXBGS、DCOILWTICO、DHHNGSP |
+| 波动率期限结构说明 | [Cboe](https://www.cboe.com/tradable-products/vix/term-structure/) | VIX 与 3 个月隐含波动率的相对关系 |
 | 加密资产 | [CoinGecko](https://www.coingecko.com/) | BTC、ETH 美元价格及 24 小时涨跌 |
 | 相关证据 | Nasdaq 聚合文章 | 过去 72 小时内的标题、时间和来源链接 |
 
@@ -243,7 +250,9 @@ npm run lint
 - 每日 09:00 刷新由浏览器定时器触发；浏览器关闭时不会运行后台任务。
 - 免费公开数据源可能延迟、限流或修改响应格式。
 - “证据动态”只展示近期标题和来源，不证明新闻与价格波动存在因果关系。
-- 宏观模块使用可交易 ETF 作为代理，不等同于官方利率、美元指数或信用利差现货数据。
+- FRED 日频序列通常滞后于盘中市场，不应用作实时交易报价；页面会显示对应观测日期。
+- 市场状态属于透明规则化提示，不是预测模型，也不应被解释为买卖建议。
+- CME FedWatch 目前作为官方外链提供，页面不抓取或重新分发其授权数据。
 - 当前没有持仓、成本价、收益率或交易功能。
 
 ## 免责声明
