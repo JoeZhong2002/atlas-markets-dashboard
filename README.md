@@ -1,6 +1,6 @@
 # Atlas Markets Dashboard
 
-面向美股科技行业投资者的开源晨间市场看板，聚合自选股行情、成交量、市场与宏观交易代理、加密资产以及过去 72 小时内的个股相关证据。
+面向美股科技行业投资者的开源晨间市场看板，聚合自选股行情、宏观信号、过去 7 天的财报与分析师共识、加密资产以及近期个股证据。
 
 ![Atlas Markets Dashboard](public/og.png)
 
@@ -24,6 +24,10 @@
 - 宏观交易代理：使用 SPY、TLT、UUP、HYG、QQQ、QQEW 观察可交易市场价格。
 - 数据韧性：展示每组数据源健康度；实时请求失败时可保留最多 24 小时的最近成功浏览器快照。
 - 官方事件入口：集中链接 BLS、BEA、Federal Reserve 和 CME FedWatch 日历。
+- 财报洞察：根据当前设备的自选股自动扫描过去 7 天内的 SEC 财报文件与 Nasdaq EPS surprise。
+- 分析师共识：展示 Nasdaq Buy/Hold/Sell 共识、平均/高低目标价、覆盖机构及相对现价空间。
+- 顶级机构证据：在 Nasdaq 聚合内容中检索 JPMorgan、Morgan Stanley、Goldman Sachs、BofA、Citi、UBS 和 Jefferies 的评级或目标价动态；仅在原文明确披露时展示。
+- 证据约束 Insight：使用确定性规则归纳财报是否超预期、当前评级共识与机构动态，每条结论均链接到对应来源。
 - 加密市场：展示 BTC、ETH 的美元价格和 24 小时涨跌。
 - 价格波动证据：只展示报道标题、发布时间和来源链接，不主动生成因果归因。
 - 72 小时过滤：剔除超过 72 小时、重复标题、带明显转载旧闻标记或明显投资推荐倾向的内容。
@@ -70,6 +74,10 @@ location.reload();
 | 利率、信用、波动与商品 | [FRED](https://fred.stlouisfed.org/) | DGS2、DGS10、DFII10、BAMLH0A0HYM2、VIXCLS、VXVCLS、DTWEXBGS、DCOILWTICO、DHHNGSP |
 | 波动率期限结构说明 | [Cboe](https://www.cboe.com/tradable-products/vix/term-structure/) | VIX 与 3 个月隐含波动率的相对关系 |
 | 加密资产 | [CoinGecko](https://www.coingecko.com/) | BTC、ETH 美元价格及 24 小时涨跌 |
+| 财报原始文件 | [SEC EDGAR](https://www.sec.gov/edgar/search/)；Nasdaq SEC Filings 回退 | 过去 7 天的 10-Q、10-K、20-F、6-K，以及可确认属于业绩披露的 8-K |
+| 财报 surprise | [Nasdaq Earnings](https://www.nasdaq.com/market-activity/earnings) | 报告 EPS、市场一致预期和 surprise 百分比 |
+| 分析师共识与目标价 | Nasdaq Analyst Research | Buy/Hold/Sell 共识、覆盖机构、平均/高低目标价；目标价在 Nasdaq 页面中标注由 TipRanks 提供 |
+| 顶级机构动态 | Nasdaq 聚合文章 | 过去 7 天内明确提及指定机构与评级/目标价动作的标题及来源链接；属于尽力覆盖，不代表完整投行研报库 |
 | 相关证据 | Nasdaq 聚合文章 | 过去 72 小时内的标题、时间和来源链接 |
 
 当前版本不需要 API Key。上游公开接口可能调整格式、限流或暂停服务，因此页面不会在接口失败时伪造兜底价格，而是显示“暂不可用”或“部分更新”。如需商业化、高频刷新或更严格的数据服务等级，请替换为有正式授权和 SLA 的行情/资讯提供商。
@@ -83,11 +91,14 @@ flowchart LR
     W --> S["/api/search"]
     W --> E["/api/evidence"]
     W --> O["/api/overview"]
+    W --> R["/api/research"]
     M --> N["Nasdaq 行情与事件"]
     S --> N
     E --> N2["Nasdaq 文章聚合"]
     O --> N3["Nasdaq 指数与 ETF"]
     O --> C["CoinGecko 加密行情"]
+    R --> S1["SEC / Nasdaq 财报"]
+    R --> S2["Nasdaq 分析师共识与机构文章"]
 ```
 
 主要文件：
@@ -102,7 +113,8 @@ app/
     ├── market/route.ts    # 自选股行情、成交量与近期公司事件
     ├── search/route.ts    # ticker / 公司名称搜索
     ├── evidence/route.ts  # 72 小时资讯证据与过滤
-    └── overview/route.ts  # 指数、宏观交易代理与加密资产
+    ├── overview/route.ts  # 指数、宏观交易代理与加密资产
+    └── research/route.ts  # 7 天财报、分析师共识、机构证据与规则化 Insight
 public/
 └── og.png                 # 项目预览图
 .openai/hosting.json       # OpenAI Sites 项目绑定配置
@@ -253,6 +265,9 @@ npm run lint
 - FRED 日频序列通常滞后于盘中市场，不应用作实时交易报价；页面会显示对应观测日期。
 - 市场状态属于透明规则化提示，不是预测模型，也不应被解释为买卖建议。
 - CME FedWatch 目前作为官方外链提供，页面不抓取或重新分发其授权数据。
+- Nasdaq Analyst Research 主要提供市场共识、覆盖机构与汇总目标价，并不保证返回逐家机构的最新评级和目标价。系统不会把“覆盖机构”误标为“近期评级事件”。
+- Nasdaq 网页接口不是正式商业数据服务，字段和可用性可能变化；财报分析板块会在数据缺失时显示空状态或最近成功快照。
+- 规则化 Insight 只归纳已取得的结构化事实和来源，不读取付费投行研报，也不构成投资建议。
 - 当前没有持仓、成本价、收益率或交易功能。
 
 ## 免责声明
