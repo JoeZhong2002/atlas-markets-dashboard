@@ -148,8 +148,11 @@ async function fetchFredSeriesInBatches() {
 
 async function fetchCrypto() {
   const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true", {
-    headers: { Accept: "application/json", "User-Agent": "AtlasMarkets/2.0" },
-    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Accept-Language": "en-US,en;q=0.9",
+      "User-Agent": "Mozilla/5.0 (compatible; AtlasMarkets/3.0; +https://github.com/JoeZhong2002/atlas-markets-dashboard)",
+    },
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(`CoinGecko ${response.status}`);
@@ -241,20 +244,22 @@ export async function GET() {
       fetchMacroProxy("QQEW", "NASDAQ 100 等权 ETF"),
     ]),
     fetchFredSeriesInBatches(),
-    fetchCrypto().catch(() => []),
+    fetchCrypto()
+      .then((items) => ({ items, error: null }))
+      .catch((error: unknown) => ({ items: [], error: error instanceof Error ? error.message : "CoinGecko request failed" })),
   ]);
 
   const indices = indicesSettled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const macro = macroSettled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const fred = fredSettled.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
   const signals = [...fred, ...deriveSignals(fred)];
-  const crypto = cryptoSettled;
+  const crypto = cryptoSettled.items;
   const fredFailure = fredSettled.find((item): item is PromiseRejectedResult => item.status === "rejected");
   const health = [
     { key: "quotes", name: "Nasdaq 指数", available: indices.length, total: 2, detail: indices.length ? null : "指数请求未返回有效行情" },
     { key: "proxies", name: "Nasdaq ETF", available: macro.length, total: 6, detail: macro.length ? null : "ETF 请求未返回有效行情" },
     { key: "fred", name: "FRED 宏观", available: fred.length, total: FRED_SERIES.length, detail: fredFailure?.reason instanceof Error ? fredFailure.reason.message : null },
-    { key: "crypto", name: "CoinGecko", available: crypto.length, total: 2, detail: crypto.length ? null : "加密请求未返回有效行情" },
+    { key: "crypto", name: "CoinGecko", available: crypto.length, total: 2, detail: crypto.length ? null : cryptoSettled.error },
   ].map((item) => ({ ...item, status: item.available === item.total ? "live" : item.available > 0 ? "partial" : "down" }));
 
   return NextResponse.json({
@@ -266,5 +271,5 @@ export async function GET() {
     crypto,
     updatedAt: new Date().toISOString(),
     live: indices.length + macro.length + signals.length + crypto.length > 0,
-  }, { headers: { "Cache-Control": "no-store, max-age=0" } });
+  }, { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" } });
 }
