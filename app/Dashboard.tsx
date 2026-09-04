@@ -177,6 +177,28 @@ async function getJson<T>(url: string) {
   }
 }
 
+async function fetchCoinGeckoDirect(): Promise<CryptoPoint[]> {
+  const payload = await getJson<Record<string, { usd?: number; usd_24h_change?: number; last_updated_at?: number }>>(
+    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin%2Cethereum&vs_currencies=usd&include_24hr_change=true&include_last_updated_at=true",
+  );
+  return [
+    { key: "BTC", name: "Bitcoin", coinId: "bitcoin" },
+    { key: "ETH", name: "Ethereum", coinId: "ethereum" },
+  ].flatMap(({ key, name, coinId }): CryptoPoint[] => {
+    const point = payload[coinId];
+    if (!point || typeof point.usd !== "number") return [];
+    return [{
+      key,
+      name,
+      value: point.usd,
+      changePercent: typeof point.usd_24h_change === "number" ? point.usd_24h_change : null,
+      asOf: point.last_updated_at ? new Date(point.last_updated_at * 1000).toISOString() : null,
+      source: "CoinGecko（浏览器直连）",
+      sourceUrl: `https://www.coingecko.com/en/coins/${coinId}`,
+    }];
+  });
+}
+
 export function Dashboard() {
   const [watchlist, setWatchlist] = useState(DEFAULT_WATCHLIST);
   const [hydrated, setHydrated] = useState(false);
@@ -246,7 +268,7 @@ export function Dashboard() {
     const [marketResult, evidenceResult, overviewResult, researchResult] = await Promise.allSettled([
       getJson<{ quotes: Quote[]; events: MarketEvent[]; failedSymbols: string[]; live: boolean }>(`/api/market?symbols=${encodeURIComponent(watchlist.join(","))}&_=${stamp}`),
       getJson<{ items: Evidence[]; live: boolean }>(`/api/evidence?symbols=${encodeURIComponent(watchlist.join(","))}&_=${stamp}`),
-      getJson<Overview & { live: boolean }>(`/api/overview?_=${stamp}`),
+      getJson<Overview & { live: boolean }>("/api/overview"),
       getJson<ResearchResponse>(`/api/research?symbols=${encodeURIComponent(watchlist.join(","))}`),
     ]);
 
@@ -289,6 +311,19 @@ export function Dashboard() {
         regime: overviewResult.value.regime,
         crypto: overviewResult.value.crypto,
       };
+      if (!nextOverview.crypto.length) {
+        try {
+          const directCrypto = await fetchCoinGeckoDirect();
+          if (directCrypto.length) {
+            nextOverview.crypto = directCrypto;
+            nextOverview.health = nextOverview.health.map((item) => item.key === "crypto"
+              ? { ...item, available: directCrypto.length, status: directCrypto.length === item.total ? "live" : "partial", detail: "服务器出口受限，已由当前浏览器直连恢复" }
+              : item);
+          }
+        } catch {
+          // Keep the server health detail and any last successful snapshot below.
+        }
+      }
       setOverview(nextOverview);
       cached.overview = nextOverview;
       completed += 1;
