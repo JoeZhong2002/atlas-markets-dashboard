@@ -57,6 +57,9 @@ test("keeps watchlist persistence and live-data routes in the source", async () 
   assert.match(search, /autocomplete\/slookup/);
   assert.match(evidence, /MAX_AGE_MS = 72/);
   assert.match(overview, /api\.coingecko\.com/);
+  assert.match(overview, /stale-while-revalidate=300/);
+  assert.match(dashboard, /fetchCoinGeckoDirect/);
+  assert.match(dashboard, /浏览器直连恢复/);
   assert.match(overview, /fred\.stlouisfed\.org/);
   assert.match(overview, /DFII10/);
   assert.match(overview, /BAMLH0A0HYM2/);
